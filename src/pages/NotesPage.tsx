@@ -64,8 +64,7 @@ export default function NotesPage() {
     notes,
     activeBatchId,
     setActiveBatch,
-    addNotes,
-    updateNotes,
+    upsertNotes,
   } = useSoapStore();
 
   const sortedBatches = useMemo(() => {
@@ -84,10 +83,12 @@ export default function NotesPage() {
     return sortedBatches[0];
   }, [activeBatchId, batches, sortedBatches]);
 
+  const findNotesForBatch = useSoapStore((s) => s.findNotesForBatch);
+
   const existingNotes = useMemo(() => {
     if (!activeBatch) return undefined;
-    return notes.find((n) => n.batchId === activeBatch.id);
-  }, [activeBatch, notes]);
+    return findNotesForBatch(activeBatch.id, activeBatch.recipe.id);
+  }, [activeBatch, findNotesForBatch]);
 
   const [formState, setFormState] = useState<BatchNotes | null>(null);
 
@@ -110,11 +111,8 @@ export default function NotesPage() {
     if (!formState) return;
     const newState = { ...formState, [key]: value };
     setFormState(newState);
-    if (existingNotes) {
-      updateNotes(newState);
-    } else {
-      addNotes(newState);
-    }
+    // 统一使用 upsert，按 id 或 batchId 幂等更新
+    upsertNotes(newState);
   };
 
   if (!activeBatch || sortedBatches.length === 0) {

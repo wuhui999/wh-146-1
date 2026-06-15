@@ -9,7 +9,7 @@ import {
   FolderUp,
 } from 'lucide-react';
 import { useSoapStore } from '@/store/soapStore';
-import type { Recipe } from '@/types';
+import type { Recipe, Batch, BatchNotes } from '@/types';
 import { calculateSaponification } from '@/lib/saponification';
 
 export default function ExportPage() {
@@ -19,9 +19,11 @@ export default function ExportPage() {
     notes,
     calcConfig,
     addRecipe,
+    updateRecipe,
     setActiveRecipe,
     addBatch,
-    addNotes,
+    updateBatch,
+    upsertNotes,
   } = useSoapStore();
 
   const [selectedRecipes, setSelectedRecipes] = useState<string[]>([]);
@@ -32,27 +34,33 @@ export default function ExportPage() {
   const exportData = useMemo(() => {
     const data: Record<string, unknown> = {
       exportedAt: new Date().toISOString(),
-      version: '1.0.0',
+      version: '1.1.0',
     };
     if (exportFormat === 'all' || exportFormat === 'config') {
       data.calcConfig = calcConfig;
     }
+
+    let targetRecipes: Recipe[] = recipes;
     if (exportFormat === 'all' || exportFormat === 'recipes') {
       if (selectedRecipes.length > 0) {
-        data.recipes = recipes.filter((r) => selectedRecipes.includes(r.id));
-      } else {
-        data.recipes = recipes;
+        targetRecipes = recipes.filter((r) => selectedRecipes.includes(r.id));
       }
+      data.recipes = targetRecipes;
     }
+
     if (exportFormat === 'all' || exportFormat === 'batches') {
-      const relevantRecipeIds =
-        selectedRecipes.length > 0 ? selectedRecipes : recipes.map((r) => r.id);
-      data.batches = batches.filter((b) =>
-        relevantRecipeIds.includes(b.recipe.id)
+      const targetRecipeIds =
+        selectedRecipes.length > 0
+          ? new Set(selectedRecipes)
+          : new Set(recipes.map((r) => r.id));
+      const targetBatches = batches.filter((b) =>
+        targetRecipeIds.has(b.recipe.id)
       );
-      data.notes = notes.filter((n) =>
-        relevantRecipeIds.includes(n.recipeId)
-      );
+      const targetBatchIds = new Set(targetBatches.map((b) => b.id));
+      // 笔记必须严格与导出的批次一一对应（按 batchId 对齐），不得多导、漏导
+      const targetNotes = notes.filter((n) => targetBatchIds.has(n.batchId));
+      data.batches = targetBatches;
+      data.notes = targetNotes;
     }
     return data;
   }, [recipes, batches, notes, calcConfig, selectedRecipes, exportFormat]);
@@ -93,42 +101,61 @@ export default function ExportPage() {
       try {
         const content = event.target?.result as string;
         const data = JSON.parse(content);
-        let importedCount = 0;
+        let recipeCount = 0;
+        let batchCount = 0;
+        let notesCount = 0;
 
         if (Array.isArray(data.recipes)) {
           for (const r of data.recipes as Recipe[]) {
             const existing = recipes.find((x) => x.id === r.id);
-            if (existing) continue;
-            const newRecipe: Recipe = {
-              ...r,
-              id: r.id && !recipes.find((x) => x.id === r.id)
-                ? r.id
-                : `recipe-imported-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              name: r.name ? `${r.name} (导入)` : `导入配方`,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            addRecipe(newRecipe);
-            setActiveRecipe(newRecipe.id);
-            importedCount++;
+            if (existing) {
+              updateRecipe({ ...r, updatedAt: Date.now() });
+            } else {
+              const newRecipe: Recipe = {
+                ...r,
+                id: r.id || `recipe-imported-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: r.name ? `${r.name} (导入)` : `导入配方`,
+                createdAt: r.createdAt || Date.now(),
+                updatedAt: Date.now(),
+              };
+              addRecipe(newRecipe);
+              setActiveRecipe(newRecipe.id);
+            }
+            recipeCount++;
           }
         }
 
         if (Array.isArray(data.batches)) {
-          for (const b of data.batches) {
-            addBatch(b);
+          for (const b of data.batches as Batch[]) {
+            const existing = batches.find((x) => x.id === b.id);
+            if (existing) {
+              updateBatch(b);
+            } else {
+              addBatch({
+                ...b,
+                id: b.id || `batch-imported-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              });
+            }
+            batchCount++;
           }
         }
 
         if (Array.isArray(data.notes)) {
-          for (const n of data.notes) {
-            addNotes(n);
+          for (const n of data.notes as BatchNotes[]) {
+            // upsert：按 id 或 batchId 去重合并，禁止重复追加
+            const normalized: BatchNotes = {
+              ...n,
+              id: n.id || `notes-imported-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              batchId: n.batchId || `orphan-imported-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            };
+            upsertNotes(normalized);
+            notesCount++;
           }
         }
 
         setImportStatus({
           type: 'success',
-          message: `成功导入 ${importedCount} 个配方${Array.isArray(data.batches) ? `，${data.batches.length} 个批次` : ''}`,
+          message: `导入完成：${recipeCount} 个配方，${batchCount} 个批次，${notesCount} 条笔记（已自动去重合并）`,
         });
       } catch (err) {
         setImportStatus({
@@ -136,7 +163,7 @@ export default function ExportPage() {
           message: '导入失败：JSON格式不正确',
         });
       }
-      setTimeout(() => setImportStatus(null), 5000);
+      setTimeout(() => setImportStatus(null), 6000);
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -178,7 +205,7 @@ export default function ExportPage() {
               </div>
             </div>
 
-            {(exportFormat === 'all' || exportFormat === 'recipes') && (
+            {(exportFormat === 'all' || exportFormat === 'recipes' || exportFormat === 'batches') && (
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-sm font-medium text-gray-600">
@@ -279,7 +306,7 @@ export default function ExportPage() {
             <FolderUp className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-600 mb-2">上传 JSON 文件导入配方数据</p>
             <p className="text-xs text-gray-400 mb-4">
-              支持本应用导出的 JSON 格式文件
+              相同批次/笔记将自动合并更新，不会重复追加
             </p>
             <label className="inline-block">
               <input
@@ -339,7 +366,7 @@ export default function ExportPage() {
             <strong>批次数据：</strong>包含制作时间戳、状态、关联配方快照
           </p>
           <p>
-            <strong>笔记数据：</strong>包含香气评分、硬度评分、问题记录等
+            <strong>笔记数据：</strong>包含香气评分、硬度评分、问题记录等，每条笔记通过 batchId 与对应批次绑定
           </p>
           <p>
             <strong>计算配置：</strong>皂化时间估算公式的可调参数

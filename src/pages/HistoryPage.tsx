@@ -36,11 +36,13 @@ export default function HistoryPage() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showCompare, setShowCompare] = useState(false);
 
+  const findNotesForBatch = useSoapStore((s) => s.findNotesForBatch);
+
   const batchesWithResult = useMemo(() => {
     return batches
       .map((batch) => {
         const result = calculateSaponification(batch.recipe, calcConfig);
-        const batchNotes = notes.find((n) => n.batchId === batch.id);
+        const batchNotes = findNotesForBatch(batch.id, batch.recipe.id);
         return { batch, result, batchNotes };
       })
       .sort(
@@ -48,7 +50,7 @@ export default function HistoryPage() {
           (b.batch.startTimestamp || b.batch.recipe.createdAt) -
           (a.batch.startTimestamp || a.batch.recipe.createdAt)
       );
-  }, [batches, notes, calcConfig]);
+  }, [batches, notes, calcConfig, findNotesForBatch]);
 
   const compareBatches = useMemo(() => {
     return batchesWithResult.filter((b) => compareIds.includes(b.batch.id));
