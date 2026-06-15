@@ -31,6 +31,7 @@ interface SoapActions {
   getRecipe: (id: string) => Recipe | undefined;
   getBatch: (id: string) => Batch | undefined;
   getNotesByRecipe: (recipeId: string) => BatchNotes | undefined;
+  getNotesByBatch: (batchId: string) => BatchNotes | undefined;
   createNewRecipe: () => Recipe;
   loadFromStorage: () => void;
   saveToStorage: () => void;
@@ -171,6 +172,9 @@ export const useSoapStore = create<SoapState & SoapActions>((set, get) => ({
 
   getNotesByRecipe: (recipeId) =>
     get().notes.find((n) => n.recipeId === recipeId),
+
+  getNotesByBatch: (batchId) =>
+    get().notes.find((n) => n.batchId === batchId),
 
   createNewRecipe: () => {
     const recipe = createEmptyRecipe();

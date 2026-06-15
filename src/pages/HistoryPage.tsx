@@ -40,7 +40,7 @@ export default function HistoryPage() {
     return batches
       .map((batch) => {
         const result = calculateSaponification(batch.recipe, calcConfig);
-        const batchNotes = notes.find((n) => n.recipeId === batch.recipe.id);
+        const batchNotes = notes.find((n) => n.batchId === batch.id);
         return { batch, result, batchNotes };
       })
       .sort(

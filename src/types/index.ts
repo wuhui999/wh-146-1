@@ -54,6 +54,7 @@ export interface Recipe {
 
 export interface BatchNotes {
   id: string;
+  batchId: string;
   recipeId: string;
   fragranceEval: number;
   hardnessEval: number;
